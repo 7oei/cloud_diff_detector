@@ -14,17 +14,18 @@
 #include <pcl/registration/ndt.h>
 #include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl/visualization/pcl_visualizer.h>
+#include <pcl/features/normal_3d.h>
 
 using namespace std::chrono_literals;
 
-ros::Publisher cloud_a_pub,cloud_b_pub,cloud_b_aligned_pub,cloud_diff_pub;
+ros::Publisher cloud_a_pub,cloud_b_pub,cloud_b_aligned_pub,cloud_diff_pub,normal_a_pub,normal_b_pub;
 pcl::PointCloud<pcl::PointXYZ>::Ptr last_scan (new pcl::PointCloud<pcl::PointXYZ> );
 void
 PoseCallback (const geometry_msgs::PoseStampedConstPtr& pose_msg)
 {
     //generate points---------------------------------------------------------------------------------------------------------------------
     //有効ボクセル少ないと死ぬ
-    std::cout << "generate start" << std::endl;
+    // std::cout << "generate start" << std::endl;
     srand ((unsigned int) time (NULL));
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudA (new pcl::PointCloud<pcl::PointXYZ> );
     cloudA->width = 2400;//128
@@ -52,7 +53,7 @@ PoseCallback (const geometry_msgs::PoseStampedConstPtr& pose_msg)
         (*cloudB)[i].y = (*cloudA)[i].y + 0.3;
         (*cloudB)[i].z = (*cloudA)[i].z + 0.0;
     }
-    std::cout << "generate end" << std::endl;
+    // std::cout << "generate end" << std::endl;
     //source filter---------------------------------------------------------------------------------------------------------------------
     pcl::PointCloud<pcl::PointXYZ>::Ptr filtered_source_cloud (new pcl::PointCloud<pcl::PointXYZ>);
     pcl::ApproximateVoxelGrid<pcl::PointXYZ> approximate_voxel_filter;
@@ -61,7 +62,7 @@ PoseCallback (const geometry_msgs::PoseStampedConstPtr& pose_msg)
     approximate_voxel_filter.filter (*filtered_source_cloud);
 
     //registration---------------------------------------------------------------------------------------------------------------------
-    std::cout << "registration start" << std::endl;
+    // std::cout << "registration start" << std::endl;
     // Initializing Normal Distributions Transform (NDT).
     pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
     // Setting scale dependent NDT parameters
@@ -81,20 +82,20 @@ PoseCallback (const geometry_msgs::PoseStampedConstPtr& pose_msg)
     Eigen::AngleAxisf init_rotation (0, Eigen::Vector3f::UnitZ ());
     Eigen::Translation3f init_translation (0, 0, 0);//0 de sinu
     Eigen::Matrix4f init_guess = (init_translation * init_rotation).matrix ();
-    std::cout << "init setting end" << std::endl;
-    std::cout << "init_guess is "<< std::endl << init_guess << std::endl;
+    // std::cout << "init setting end" << std::endl;
+    // std::cout << "init_guess is "<< std::endl << init_guess << std::endl;
     // Calculating required rigid transform to align the input cloud to the target cloud.
     pcl::PointCloud<pcl::PointXYZ>::Ptr cloudB_aligned (new pcl::PointCloud<pcl::PointXYZ>);//source->target(cloudB->frame cloudA)
     ndt.align (*cloudB_aligned, init_guess);
-    std::cout << "align end" << std::endl;
-    std::cout << "Normal Distributions Transform has converged:" << ndt.hasConverged ()
-                << " score: " << ndt.getFitnessScore () << std::endl;
+    // std::cout << "align end" << std::endl;
+    // std::cout << "Normal Distributions Transform has converged:" << ndt.hasConverged ()
+    //             << " score: " << ndt.getFitnessScore () << std::endl;
     // Transforming unfiltered, input cloud using found transform.
     pcl::transformPointCloud (*cloudB, *cloudB_aligned, ndt.getFinalTransformation ());
-    std::cout << "registration end" << std::endl;
+    // std::cout << "registration end" << std::endl;
 
     // diff deteciton---------------------------------------------------------------------------------------------------------------------
-    std::cout << "diff detection start" << std::endl;
+    // std::cout << "diff detection start" << std::endl;
     // Octree resolution - side length of octree voxels
     float resolution = 1.0f;
     pcl::octree::OctreePointCloudChangeDetector<pcl::PointXYZ> octree (resolution);
@@ -133,12 +134,26 @@ PoseCallback (const geometry_msgs::PoseStampedConstPtr& pose_msg)
     cloud_diff_msg.header.stamp = pose_msg->header.stamp;
     cloud_diff_msg.header.frame_id = "map";
     cloud_diff_pub.publish (cloud_diff_msg);
-    std::cout << "diff detection end" << std::endl;
+    // std::cout << "diff detection end" << std::endl;
+}
+
+double normalizeAnglePositive(double angle)
+{
+  return fmod(fmod(angle, 2.0 * M_PI) + 2.0 * M_PI, 2.0 * M_PI);
+}
+
+double normalizeAngle(double angle)
+{
+  double a = normalizeAnglePositive(angle);
+  if (a > M_PI) {
+    a -= 2.0 * M_PI;
+  }
+  return a;
 }
 
 void
 ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
-    std::cout << "scan callback start" << std::endl;
+    // std::cout << "scan callback start" << std::endl;
     // Container for original & filtered data
 	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud {new pcl::PointCloud<pcl::PointXYZ>};
     pcl::PointCloud<pcl::PointXYZ>::Ptr remove_NaN_cloud {new pcl::PointCloud<pcl::PointXYZ>};
@@ -155,7 +170,7 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         approximate_voxel_filter.filter (*filtered_source_cloud);
 
         //registration---------------------------------------------------------------------------------------------------------------------
-        std::cout << "registration start" << std::endl;
+        // std::cout << "registration start" << std::endl;
         // Initializing Normal Distributions Transform (NDT).
         pcl::NormalDistributionsTransform<pcl::PointXYZ, pcl::PointXYZ> ndt;
         // Setting scale dependent NDT parameters
@@ -181,21 +196,75 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         pcl::PointCloud<pcl::PointXYZ>::Ptr source_aligned (new pcl::PointCloud<pcl::PointXYZ>);
         ndt.align (*source_aligned, init_guess);
         // std::cout << "align end" << std::endl;
-        std::cout << "Normal Distributions Transform has converged:" << ndt.hasConverged ()
-                    << " score: " << ndt.getFitnessScore () << std::endl;
+        // std::cout << "Normal Distributions Transform has converged:" << ndt.hasConverged ()
+        //             << " score: " << ndt.getFitnessScore () << std::endl;
         // Transforming unfiltered, input cloud using found transform.
         pcl::transformPointCloud (*remove_NaN_cloud, *source_aligned, ndt.getFinalTransformation ());
-        std::cout << "registration end" << std::endl;
+        // std::cout << "registration end" << std::endl;
+
+        // normal filter---------------------------------------------------------------------------------------------------------------------
+        // source_aligned filter
+        pcl::PointCloud<pcl::PointXYZ>::Ptr source_aligned_normal_filtered {new pcl::PointCloud<pcl::PointXYZ>};
+        source_aligned_normal_filtered->points.resize (source_aligned->points.size());
+
+        pcl::PointCloud<pcl::PointNormal>::Ptr source_aligned_normals {new pcl::PointCloud<pcl::PointNormal>};
+        source_aligned_normals->points.resize (source_aligned->points.size());
+        pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne1;
+        ne1.setInputCloud(source_aligned);
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree1 (new pcl::search::KdTree<pcl::PointXYZ> ());
+        ne1.setSearchMethod(tree1);
+        ne1.setRadiusSearch(3.0);
+        ne1.compute(*source_aligned_normals);
+
+        int filtered_size = 0;
+
+        for(int i = 0;i < source_aligned->points.size();i++){
+            // flipNormalTowardsViewpoint(source_aligned->points[i], 0.0, 0.0, 0.0, source_aligned_normals->points[i].normal_x, source_aligned_normals->points[i].normal_y, source_aligned_normals->points[i].normal_z);
+            if(abs(source_aligned_normals->points[i].normal_z) < 0.8){
+                source_aligned_normal_filtered->points[i].x = source_aligned->points[i].x;
+                source_aligned_normal_filtered->points[i].y = source_aligned->points[i].y;
+                source_aligned_normal_filtered->points[i].z = source_aligned->points[i].z;
+                filtered_size++;
+            }
+        }
+        source_aligned_normal_filtered->points.resize (filtered_size);
+
+        // last_scan filter
+        pcl::PointCloud<pcl::PointXYZ>::Ptr last_scan_normal_filtered (new pcl::PointCloud<pcl::PointXYZ> );
+        last_scan_normal_filtered->points.resize (last_scan->points.size());
+
+        pcl::PointCloud<pcl::PointNormal>::Ptr last_scan_normals {new pcl::PointCloud<pcl::PointNormal>};
+        last_scan_normals->points.resize (last_scan->points.size());
+        pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne2;
+        ne2.setInputCloud(last_scan);
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree2 (new pcl::search::KdTree<pcl::PointXYZ> ());
+        ne2.setSearchMethod(tree2);
+        ne2.setRadiusSearch(3.0);
+        ne2.compute(*last_scan_normals);
+
+        filtered_size = 0;
+
+        for(int i = 0;i < last_scan->points.size();i++){
+            // flipNormalTowardsViewpoint(last_scan->points[i], 0.0, 0.0, 0.0, last_scan_normals->points[i].normal_x, last_scan_normals->points[i].normal_y, last_scan_normals->points[i].normal_z);
+            if(abs(last_scan_normals->points[i].normal_z) < 0.8){
+                last_scan_normal_filtered->points[i].x = last_scan->points[i].x;
+                last_scan_normal_filtered->points[i].y = last_scan->points[i].y;
+                last_scan_normal_filtered->points[i].z = last_scan->points[i].z;
+                filtered_size++;
+            }
+        }
+        last_scan_normal_filtered->points.resize (filtered_size);
+
 
         // diff deteciton---------------------------------------------------------------------------------------------------------------------
-        std::cout << "diff detection start" << std::endl;
+        // std::cout << "diff detection start" << std::endl;
         // Octree resolution - side length of octree voxels
         float resolution = 5.0f;
         pcl::octree::OctreePointCloudChangeDetector<pcl::PointXYZ> octree (resolution);
-        octree.setInputCloud (last_scan);
+        octree.setInputCloud (last_scan_normal_filtered);
         octree.addPointsFromInputCloud ();
         octree.switchBuffers ();
-        octree.setInputCloud (source_aligned);
+        octree.setInputCloud (source_aligned_normal_filtered);
         octree.addPointsFromInputCloud ();
         std::vector<int> newPointIdxVector;
         octree.getPointIndicesFromNewVoxels (newPointIdxVector);
@@ -203,12 +272,12 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         cloudDiff->points.resize (newPointIdxVector.size());
         // Output points
         for (std::size_t i = 0; i < newPointIdxVector.size (); ++i){
-            (*cloudDiff)[i].x = (*source_aligned)[newPointIdxVector[i]].x;
-            (*cloudDiff)[i].y = (*source_aligned)[newPointIdxVector[i]].y;
-            (*cloudDiff)[i].z = (*source_aligned)[newPointIdxVector[i]].z;
+            (*cloudDiff)[i].x = (*source_aligned_normal_filtered)[newPointIdxVector[i]].x;
+            (*cloudDiff)[i].y = (*source_aligned_normal_filtered)[newPointIdxVector[i]].y;
+            (*cloudDiff)[i].z = (*source_aligned_normal_filtered)[newPointIdxVector[i]].z;
         }
         sensor_msgs::PointCloud2 cloud_a_msg;
-        pcl::toROSMsg(*last_scan, cloud_a_msg);
+        pcl::toROSMsg(*last_scan_normal_filtered, cloud_a_msg);
         cloud_a_msg.header.stamp = cloud_msg->header.stamp;
         cloud_a_msg.header.frame_id = "map";
         cloud_a_pub.publish (cloud_a_msg);
@@ -218,7 +287,7 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         cloud_b_msg.header.frame_id = "map";
         cloud_b_pub.publish (cloud_b_msg);
         sensor_msgs::PointCloud2 cloud_b_aligned_msg;
-        pcl::toROSMsg(*source_aligned, cloud_b_aligned_msg);
+        pcl::toROSMsg(*source_aligned_normal_filtered, cloud_b_aligned_msg);
         cloud_b_aligned_msg.header.stamp = cloud_msg->header.stamp;
         cloud_b_aligned_msg.header.frame_id = "map";
         cloud_b_aligned_pub.publish (cloud_b_aligned_msg);
@@ -227,7 +296,7 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         cloud_diff_msg.header.stamp = cloud_msg->header.stamp;
         cloud_diff_msg.header.frame_id = "map";
         cloud_diff_pub.publish (cloud_diff_msg);
-        std::cout << "diff detection end" << std::endl;
+        // std::cout << "diff detection end" << std::endl;
     }
     last_scan->points.resize (remove_NaN_cloud->points.size());
     for(int i=0;i<last_scan->points.size();i++){
