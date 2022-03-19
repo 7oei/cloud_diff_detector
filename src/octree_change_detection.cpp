@@ -15,6 +15,7 @@
 #include <pcl/filters/approximate_voxel_grid.h>
 #include <pcl/visualization/pcl_visualizer.h>
 #include <pcl/features/normal_3d.h>
+#include <pcl/kdtree/kdtree_flann.h>
 
 using namespace std::chrono_literals;
 
@@ -204,67 +205,112 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
 
         // normal filter---------------------------------------------------------------------------------------------------------------------
         // source_aligned filter
-        pcl::PointCloud<pcl::PointXYZ>::Ptr source_aligned_normal_filtered {new pcl::PointCloud<pcl::PointXYZ>};
-        source_aligned_normal_filtered->points.resize (source_aligned->points.size());
+        // pcl::PointCloud<pcl::PointXYZ>::Ptr source_aligned_normal_filtered {new pcl::PointCloud<pcl::PointXYZ>};
+        // source_aligned_normal_filtered->points.resize (source_aligned->points.size());
 
-        pcl::PointCloud<pcl::PointNormal>::Ptr source_aligned_normals {new pcl::PointCloud<pcl::PointNormal>};
-        source_aligned_normals->points.resize (source_aligned->points.size());
-        pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne1;
-        ne1.setInputCloud(source_aligned);
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree1 (new pcl::search::KdTree<pcl::PointXYZ> ());
-        ne1.setSearchMethod(tree1);
-        ne1.setRadiusSearch(3.0);
-        ne1.compute(*source_aligned_normals);
+        // pcl::PointCloud<pcl::PointNormal>::Ptr source_aligned_normals {new pcl::PointCloud<pcl::PointNormal>};
+        // source_aligned_normals->points.resize (source_aligned->points.size());
+        // pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne1;
+        // ne1.setInputCloud(source_aligned);
+        // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree1 (new pcl::search::KdTree<pcl::PointXYZ> ());
+        // ne1.setSearchMethod(tree1);
+        // ne1.setRadiusSearch(3.0);
+        // ne1.compute(*source_aligned_normals);
 
+        // int filtered_size = 0;
+
+        // for(int i = 0;i < source_aligned->points.size();i++){
+        //     if(abs(source_aligned_normals->points[i].normal_z) < 0.7){
+        //         source_aligned_normal_filtered->points[filtered_size].x = source_aligned->points[i].x;
+        //         source_aligned_normal_filtered->points[filtered_size].y = source_aligned->points[i].y;
+        //         source_aligned_normal_filtered->points[filtered_size].z = source_aligned->points[i].z;
+        //         filtered_size++;
+        //     }
+        // }
+        // source_aligned_normal_filtered->points.resize (filtered_size);
+
+        // // last_scan filter
+        // pcl::PointCloud<pcl::PointXYZ>::Ptr last_scan_normal_filtered (new pcl::PointCloud<pcl::PointXYZ> );
+        // last_scan_normal_filtered->points.resize (last_scan->points.size());
+
+        // pcl::PointCloud<pcl::PointNormal>::Ptr last_scan_normals {new pcl::PointCloud<pcl::PointNormal>};
+        // last_scan_normals->points.resize (last_scan->points.size());
+        // pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne2;
+        // ne2.setInputCloud(last_scan);
+        // pcl::search::KdTree<pcl::PointXYZ>::Ptr tree2 (new pcl::search::KdTree<pcl::PointXYZ> ());
+        // ne2.setSearchMethod(tree2);
+        // ne2.setRadiusSearch(3.0);
+        // ne2.compute(*last_scan_normals);
+
+        // filtered_size = 0;
+
+        // for(int i = 0;i < last_scan->points.size();i++){
+        //     if(abs(last_scan_normals->points[i].normal_z) < 0.7){
+        //         last_scan_normal_filtered->points[filtered_size].x = last_scan->points[i].x;
+        //         last_scan_normal_filtered->points[filtered_size].y = last_scan->points[i].y;
+        //         last_scan_normal_filtered->points[filtered_size].z = last_scan->points[i].z;
+        //         filtered_size++;
+        //     }
+        // }
+        // last_scan_normal_filtered->points.resize (filtered_size);
+
+        // density filter---------------------------------------------------------------------------------------------------------------------
         int filtered_size = 0;
-
+        pcl::PointCloud<pcl::PointXYZ>::Ptr source_aligned_density_filtered {new pcl::PointCloud<pcl::PointXYZ>};
+        source_aligned_density_filtered->points.resize (source_aligned->points.size());
+        pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr density_tree1 (new pcl::KdTreeFLANN<pcl::PointXYZ>);
+        density_tree1->setInputCloud(source_aligned);
+        double radius1 = 0.5;  //半径r
+        std::vector<int> k_indices1;  //範囲内の点のインデックスが入る
+        std::vector<float> k_sqr_distances1;  //範囲内の点の距離が入る
+        unsigned int max_nn1 = 0;  //何点見つかったら探索を打ち切るか。0にすると打ち切らない
         for(int i = 0;i < source_aligned->points.size();i++){
-            // flipNormalTowardsViewpoint(source_aligned->points[i], 0.0, 0.0, 0.0, source_aligned_normals->points[i].normal_x, source_aligned_normals->points[i].normal_y, source_aligned_normals->points[i].normal_z);
-            if(abs(source_aligned_normals->points[i].normal_z) < 0.8){
-                source_aligned_normal_filtered->points[i].x = source_aligned->points[i].x;
-                source_aligned_normal_filtered->points[i].y = source_aligned->points[i].y;
-                source_aligned_normal_filtered->points[i].z = source_aligned->points[i].z;
+            pcl::PointXYZ p1;  //中心座標
+            p1.x = source_aligned->points[i].x;
+            p1.y = source_aligned->points[i].y;
+            p1.z = source_aligned->points[i].z;
+            density_tree1->radiusSearch(p1, radius1, k_indices1, k_sqr_distances1, max_nn1);
+            if(k_indices1.size() > 10){
+                source_aligned_density_filtered->points[filtered_size].x = source_aligned->points[i].x;
+                source_aligned_density_filtered->points[filtered_size].y = source_aligned->points[i].y;
+                source_aligned_density_filtered->points[filtered_size].z = source_aligned->points[i].z;
                 filtered_size++;
             }
         }
-        source_aligned_normal_filtered->points.resize (filtered_size);
+        source_aligned_density_filtered->points.resize (filtered_size);
 
-        // last_scan filter
-        pcl::PointCloud<pcl::PointXYZ>::Ptr last_scan_normal_filtered (new pcl::PointCloud<pcl::PointXYZ> );
-        last_scan_normal_filtered->points.resize (last_scan->points.size());
-
-        pcl::PointCloud<pcl::PointNormal>::Ptr last_scan_normals {new pcl::PointCloud<pcl::PointNormal>};
-        last_scan_normals->points.resize (last_scan->points.size());
-        pcl::NormalEstimation<pcl::PointXYZ, pcl::PointNormal> ne2;
-        ne2.setInputCloud(last_scan);
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree2 (new pcl::search::KdTree<pcl::PointXYZ> ());
-        ne2.setSearchMethod(tree2);
-        ne2.setRadiusSearch(3.0);
-        ne2.compute(*last_scan_normals);
-
-        filtered_size = 0;
-
+        pcl::PointCloud<pcl::PointXYZ>::Ptr last_scan_density_filtered (new pcl::PointCloud<pcl::PointXYZ> );
+        last_scan_density_filtered->points.resize (last_scan->points.size());
+        pcl::KdTreeFLANN<pcl::PointXYZ>::Ptr density_tree2 (new pcl::KdTreeFLANN<pcl::PointXYZ>);
+        density_tree2->setInputCloud(last_scan);
+        double radius2 = 0.5;  //半径r
+        std::vector<int> k_indices2;  //範囲内の点のインデックスが入る
+        std::vector<float> k_sqr_distances2;  //範囲内の点の距離が入る
+        unsigned int max_nn2 = 0;  //何点見つかったら探索を打ち切るか。0にすると打ち切らない
         for(int i = 0;i < last_scan->points.size();i++){
-            // flipNormalTowardsViewpoint(last_scan->points[i], 0.0, 0.0, 0.0, last_scan_normals->points[i].normal_x, last_scan_normals->points[i].normal_y, last_scan_normals->points[i].normal_z);
-            if(abs(last_scan_normals->points[i].normal_z) < 0.8){
-                last_scan_normal_filtered->points[i].x = last_scan->points[i].x;
-                last_scan_normal_filtered->points[i].y = last_scan->points[i].y;
-                last_scan_normal_filtered->points[i].z = last_scan->points[i].z;
+            pcl::PointXYZ p2;  //中心座標
+            p2.x = last_scan->points[i].x;
+            p2.y = last_scan->points[i].y;
+            p2.z = last_scan->points[i].z;
+            density_tree2->radiusSearch(p2, radius2, k_indices2, k_sqr_distances2, max_nn2);
+            if(k_indices2.size() > 10){
+                last_scan_density_filtered->points[filtered_size].x = last_scan->points[i].x;
+                last_scan_density_filtered->points[filtered_size].y = last_scan->points[i].y;
+                last_scan_density_filtered->points[filtered_size].z = last_scan->points[i].z;
                 filtered_size++;
             }
         }
-        last_scan_normal_filtered->points.resize (filtered_size);
-
+        last_scan_density_filtered->points.resize (filtered_size);
 
         // diff deteciton---------------------------------------------------------------------------------------------------------------------
         // std::cout << "diff detection start" << std::endl;
         // Octree resolution - side length of octree voxels
         float resolution = 5.0f;
         pcl::octree::OctreePointCloudChangeDetector<pcl::PointXYZ> octree (resolution);
-        octree.setInputCloud (last_scan_normal_filtered);
+        octree.setInputCloud (last_scan_density_filtered);
         octree.addPointsFromInputCloud ();
         octree.switchBuffers ();
-        octree.setInputCloud (source_aligned_normal_filtered);
+        octree.setInputCloud (source_aligned_density_filtered);
         octree.addPointsFromInputCloud ();
         std::vector<int> newPointIdxVector;
         octree.getPointIndicesFromNewVoxels (newPointIdxVector);
@@ -272,12 +318,12 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         cloudDiff->points.resize (newPointIdxVector.size());
         // Output points
         for (std::size_t i = 0; i < newPointIdxVector.size (); ++i){
-            (*cloudDiff)[i].x = (*source_aligned_normal_filtered)[newPointIdxVector[i]].x;
-            (*cloudDiff)[i].y = (*source_aligned_normal_filtered)[newPointIdxVector[i]].y;
-            (*cloudDiff)[i].z = (*source_aligned_normal_filtered)[newPointIdxVector[i]].z;
+            (*cloudDiff)[i].x = (*source_aligned_density_filtered)[newPointIdxVector[i]].x;
+            (*cloudDiff)[i].y = (*source_aligned_density_filtered)[newPointIdxVector[i]].y;
+            (*cloudDiff)[i].z = (*source_aligned_density_filtered)[newPointIdxVector[i]].z;
         }
         sensor_msgs::PointCloud2 cloud_a_msg;
-        pcl::toROSMsg(*last_scan_normal_filtered, cloud_a_msg);
+        pcl::toROSMsg(*last_scan_density_filtered, cloud_a_msg);
         cloud_a_msg.header.stamp = cloud_msg->header.stamp;
         cloud_a_msg.header.frame_id = "map";
         cloud_a_pub.publish (cloud_a_msg);
@@ -287,7 +333,7 @@ ScanCallback (const sensor_msgs::PointCloud2ConstPtr& cloud_msg){
         cloud_b_msg.header.frame_id = "map";
         cloud_b_pub.publish (cloud_b_msg);
         sensor_msgs::PointCloud2 cloud_b_aligned_msg;
-        pcl::toROSMsg(*source_aligned_normal_filtered, cloud_b_aligned_msg);
+        pcl::toROSMsg(*source_aligned_density_filtered, cloud_b_aligned_msg);
         cloud_b_aligned_msg.header.stamp = cloud_msg->header.stamp;
         cloud_b_aligned_msg.header.frame_id = "map";
         cloud_b_aligned_pub.publish (cloud_b_aligned_msg);
